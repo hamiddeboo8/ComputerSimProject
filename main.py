@@ -1,4 +1,6 @@
+import random
 from abc import ABC, abstractmethod
+import numpy as np
 
 
 # abstract classes
@@ -124,15 +126,44 @@ class OrderTracking(Request):
         Request.__init__(self, 2, max_wait, 0.05)
 
 
+# functions
+def generate_request_type():
+    temp = random.random()
+    for i in range(len(Request.occurrence_prob_range)):
+        if Request.occurrence_prob_range[i] > temp:
+            return type(Request.allRequests[i - 1])
+
+
+def generate_arrival_data(rate, finish_time):
+    last_start_time = 0
+    result = []
+    while last_start_time < finish_time:
+        interArrival = np.random.poisson(rate, 1)
+        request_type = generate_request_type()
+        if result:
+            result.append((request_type, int(result[-1][1] + interArrival)))
+        else:
+            result.append((request_type, int(interArrival)))
+        last_start_time = result[-1][1]
+    if result[-1][1] >= finish_time:
+        result.pop()
+    return result
+
+
+# constants
 mapper_service_dict = {0: RestaurantManagement, 1: CustomerManagement, 2: OrderManagement, 3: DeliveryCommunication,
                        4: Payments, 5: MobileAPI, 6: WebAPI}
 mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessageDelivery, 3: RestaurantInfoMobile,
                        4: RestaurantInfoWeb, 5: DeliveryRequest, 6: OrderTracking}
-
+# inputs
 num_of_instances = []
 arrival_rate = 0
 total_time = 0
 max_waits = []
+
+# variables
+current_time = 0
+arrival_table = []
 
 for i in range(4):
     input_line = input()
@@ -155,5 +186,4 @@ for i in range(7):
 for i in range(7):
     mapper_request_dict[i](max_waits[i])
 
-for i in range(7):
-    print(mapper_service_dict[i].instances)
+arrival_table = generate_arrival_data(arrival_rate, total_time)
