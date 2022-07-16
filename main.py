@@ -12,7 +12,7 @@ class Service(ABC):
 
 
 class Request(ABC):
-    occurrence_prob_range = [0.0, 1.0]
+    occurrence_prob_range = [0.0]
     allRequests = []
 
     @abstractmethod
@@ -20,11 +20,8 @@ class Request(ABC):
         self.priority = priority
         self.max_wait = max_wait
         self.occurrence_prob = occurrence_prob
-        Request.occurrence_prob_range.insert(-1, Request.occurrence_prob_range[-1] + occurrence_prob)
-        if Request.occurrence_prob_range[-1] > 1.0:
-            print("Error during occurrence probabilities!")
-        else:
-            Request.allRequests.append(self)
+        Request.occurrence_prob_range.append(Request.occurrence_prob_range[-1] + occurrence_prob)
+        Request.allRequests.append(self)
 
 
 # services
@@ -158,3 +155,5 @@ for i in range(7):
 for i in range(7):
     mapper_request_dict[i](max_waits[i])
 
+for i in range(7):
+    print(mapper_service_dict[i].instances)
