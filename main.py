@@ -5,12 +5,83 @@ import numpy as np
 
 # abstract classes
 class Service(ABC):
+    instances = []
+    queue = []
+
     @abstractmethod
     def __init__(self, service_rate, fault_prob):
-        self.queue = []
         self.service_dist = 'exp'
         self.service_rate = service_rate
         self.fault_prob = fault_prob
+        self.inProgress = None
+
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
+
+    @classmethod
+    def addToQueue(cls, request, index, source):
+        for i in range(len(cls.queue)):
+            if request.priority < cls.queue[i][0][0].priority:
+                cls.queue.append([(request, index), current_time, None, source])
+                return
+        cls.queue.append([(request, index), current_time, None, source])
+
+    def serve(self, request, index, source):
+        self.inProgress = [(request, index), current_time, None, source]
+        if len(request.pipeline) - 1 == index:
+            service_time = np.random.exponential(self.service_rate, 1)
+            self.inProgress[2] = current_time + service_time
+        else:
+            Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self)
+
+    def serve_back(self):
+        if self.inProgress is None:
+            return
+        if self.inProgress[2] is None:
+            service_time = np.random.exponential(self.service_rate, 1)
+            self.inProgress[2] = current_time + service_time
+            return
+        if self.inProgress[2] > current_time:
+            return
+        temp = self.inProgress
+        self.inProgress = None
+        if temp[3] is None:
+            return
+        temp[3].serve_back()
+
+    @classmethod
+    def HandleProgress(cls):
+        for instance in cls.instances:
+            instance.serve_back()
+
+    @classmethod
+    def EmptyQueues(cls):
+        if not cls.queue:
+            return
+        else:
+            free_instances = []
+            for instance in cls.instances:
+                if instance.inProgress is None:
+                    free_instances.append(instance)
+            while free_instances:
+                if not cls.queue:
+                    return
+                out_queue = cls.queue.pop()
+                idx = random.randint(0, len(free_instances) - 1)
+                free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3])
+                free_instances.pop(idx)
+
+    @classmethod
+    def SpecifyHandleInstance(cls, request, serviceType, index, source):
+        free_instances = []
+        for instance in serviceType.instances:
+            if instance.inProgress is None:
+                free_instances.append(instance)
+        if free_instances:
+            free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source)
+        else:
+            serviceType.addToQueue(request, index, None, source)
 
 
 class Request(ABC):
@@ -19,68 +90,51 @@ class Request(ABC):
 
     @abstractmethod
     def __init__(self, priority, max_wait, occurrence_prob):
+        self.pipeline = []
         self.priority = priority
         self.max_wait = max_wait
         self.occurrence_prob = occurrence_prob
         Request.occurrence_prob_range.append(Request.occurrence_prob_range[-1] + occurrence_prob)
         Request.allRequests.append(self)
 
+    def doRequest(self):
+        Service.SpecifyHandleInstance(self, self.pipeline[0], 0, None)
+
 
 # services
 class MobileAPI(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 2, 0.01)
-        MobileAPI.instances.append(self)
 
 
 class WebAPI(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 3, 0.01)
-        WebAPI.instances.append(self)
 
 
 class RestaurantManagement(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 8, 0.02)
-        RestaurantManagement.instances.append(self)
 
 
 class CustomerManagement(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 5, 0.02)
-        CustomerManagement.instances.append(self)
 
 
 class OrderManagement(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 6, 0.03)
-        OrderManagement.instances.append(self)
 
 
 class DeliveryCommunication(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 9, 0.1)
-        DeliveryCommunication.instances.append(self)
 
 
 class Payments(Service):
-    instances = []
-
     def __init__(self):
         Service.__init__(self, 12, 0.2)
-        Payments.instances.append(self)
 
 
 # requests
@@ -126,6 +180,13 @@ class OrderTracking(Request):
         Request.__init__(self, 2, max_wait, 0.05)
 
 
+# constants
+mapper_service_dict = {0: RestaurantManagement, 1: CustomerManagement, 2: OrderManagement, 3: DeliveryCommunication,
+                       4: Payments, 5: MobileAPI, 6: WebAPI}
+mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessageDelivery, 3: RestaurantInfoMobile,
+                       4: RestaurantInfoWeb, 5: DeliveryRequest, 6: OrderTracking}
+
+
 # functions
 def generate_request_type():
     temp = random.random()
@@ -138,7 +199,7 @@ def generate_arrival_data(rate, finish_time):
     last_start_time = 0
     result = []
     while last_start_time < finish_time:
-        interArrival = np.random.poisson(rate, 1)
+        interArrival = np.random.poisson(1.0 / float(rate), 1)
         request_type = generate_request_type()
         if result:
             result.append((request_type, int(result[-1][1] + interArrival)))
@@ -150,11 +211,37 @@ def generate_arrival_data(rate, finish_time):
     return result
 
 
-# constants
-mapper_service_dict = {0: RestaurantManagement, 1: CustomerManagement, 2: OrderManagement, 3: DeliveryCommunication,
-                       4: Payments, 5: MobileAPI, 6: WebAPI}
-mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessageDelivery, 3: RestaurantInfoMobile,
-                       4: RestaurantInfoWeb, 5: DeliveryRequest, 6: OrderTracking}
+def handleQueues():
+    for i in range(4, -3):
+        if i < 0:
+            j = i + 7
+        else:
+            j = i
+        mapper_service_dict[j].EmptyQueues()
+
+
+def handleProgressed():
+    for i in range(4, -3):
+        if i < 0:
+            j = i + 7
+        else:
+            j = i
+        mapper_service_dict[j].HandleProgress()
+
+
+def isIdle():
+    if arrival_table[idx_over_arrival][1] == current_time:
+        return False
+    for i in range(7):
+        if mapper_service_dict[i].queue:
+            return False
+    for i in range(7):
+        for instance in mapper_service_dict[i].instances:
+            if instance is not None:
+                return False
+    return True
+
+
 # inputs
 num_of_instances = []
 arrival_rate = 0
@@ -187,3 +274,20 @@ for i in range(7):
     mapper_request_dict[i](max_waits[i])
 
 arrival_table = generate_arrival_data(arrival_rate, total_time)
+idx_over_arrival = 0
+# print(Request.allRequests)
+# print(Request.occurrence_prob_range)
+
+# for arrive in arrival_table:
+#    arrive[0].putInQueue(arrive[1])
+
+
+while current_time <= total_time:
+    if isIdle():
+        current_time = arrival_table[idx_over_arrival][1]
+    else:
+        while arrival_table[idx_over_arrival][1] == current_time:
+            arrival_table[idx_over_arrival][0].doRequest()
+            idx_over_arrival += 1
+        handleProgressed()
+        handleQueues()
