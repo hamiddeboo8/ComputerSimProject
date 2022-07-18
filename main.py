@@ -14,20 +14,20 @@ class Service(ABC):
         self.inProgress = None
 
     @classmethod
-    def addToQueue(cls, request, index, source, firstTime):
+    def addToQueue(cls, request, index, source):
         for i in range(len(cls.queue)):
-            if request.priority < cls.queue[i][0][0].priority:
-                cls.queue.append([(request, index), current_time, None, source, firstTime])
+            if type(request).priority < cls.queue[i][0][0].priority:
+                cls.queue.insert(i, [(request, index), current_time, None, source])
                 return
-        cls.queue.append([(request, index), current_time, None, source, firstTime])
+        cls.queue.append([(request, index), current_time, None, source])
 
-    def serve(self, request, index, source, firstTime):
-        self.inProgress = [(request, index), current_time, None, source, firstTime]
-        if len(request.pipeline) - 1 == index:
+    def serve(self, request, index, source):
+        self.inProgress = [(request, index), current_time, None, source]
+        if len(type(request).pipeline) - 1 == index:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
             self.inProgress[2] = current_time + service_time
         else:
-            Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self, firstTime)
+            Service.SpecifyHandleInstance(request, type(request).pipeline[index + 1], index + 1, self)
 
     def serve_back(self):
         # print("serve_back fired,", self.inProgress)
@@ -40,11 +40,21 @@ class Service(ABC):
         if self.inProgress[2] > current_time:
             return
         if self.inProgress[3] is None:
-            self.inProgress = None
-            return
+            accepted_requests.append(self.inProgress[0][0])
+            removeCurrent(self.inProgress[0][0].id)
         else:
             self.inProgress[3].serve_back()
-            self.inProgress = None
+        self.inProgress = None
+
+    def fail(self):
+        if self.inProgress is None:
+            return
+        if self.inProgress[3] is None:
+            return
+        self.inProgress[3].fail()
+        failed_requests.append(self.inProgress[0][0])
+        removeCurrent(self.inProgress[0][0].id)
+        self.inProgress = None
 
     @classmethod
     def HandleProgress(cls):
@@ -66,31 +76,38 @@ class Service(ABC):
             while free_instances:
                 if not cls.queue:
                     return
-                out_queue = cls.queue.pop()
+                out_queue = cls.queue.pop(0)
                 idx = random.randint(0, len(free_instances) - 1)
-                free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3], out_queue[4])
+                free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3])
                 free_instances.pop(idx)
 
     @classmethod
-    def SpecifyHandleInstance(cls, request, serviceType, index, source, firstTime):
+    def SpecifyHandleInstance(cls, request, serviceType, index, source):
         free_instances = []
         for instance in serviceType.instances:
             if instance.inProgress is None:
                 free_instances.append(instance)
         if free_instances:
-            free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source, firstTime)
+            free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source)
         else:
-            serviceType.addToQueue(request, index, source, firstTime)
+            serviceType.addToQueue(request, index, source)
 
 
 class Request(ABC):
     __occurrence_prob_range = [0.0]
     __allRequests = []
+    __ID = 0
 
     pipeline = []
     priority = 0
     max_wait = 0
     occurrence_prob = 0
+
+    @abstractmethod
+    def __init__(self, time):
+        self.id = Request.__ID + 1
+        self.time = time
+        Request.__ID += 1
 
     @classmethod
     def init(cls, self, priority, max_wait, occurrence_prob):
@@ -100,9 +117,41 @@ class Request(ABC):
         Request.__occurrence_prob_range.append(Request.__occurrence_prob_range[-1] + occurrence_prob)
         Request.__allRequests.append(type(self))
 
-    @classmethod
-    def DoRequest(cls):
-        Service.SpecifyHandleInstance(cls, cls.pipeline[0], 0, None, current_time)
+    def doRequest(self):
+        current_requests.append(self)
+        Service.SpecifyHandleInstance(self, type(self).pipeline[0], 0, None)
+
+    def time_out(self):
+        temp = 0
+        for i in range(len(type(self).pipeline) - 1, -1, -1):
+            stage = type(self).pipeline[i]
+            if temp != 1:
+                for instance in stage.instances:
+                    if instance is not None and instance.inProgress is not None and instance.inProgress[0][0].id == self.id:
+                        instance.inProgress = None
+                        temp = 1
+                        break
+                if temp == 1:
+                    continue
+            else:
+                idx = -1
+                for k in range(len(stage.queue)):
+                    if stage.queue[k][0][0].id == self.id:
+                        idx = k
+                        break
+                if idx != -1:
+                    stage.queue.pop(idx)
+            if i == 0:
+                idx = -1
+                for k in range(len(stage.queue)):
+                    if stage.queue[k][0][0].id == self.id:
+                        idx = k
+                        break
+                if idx != -1:
+                    stage.queue.pop(idx)
+        timeout_requests.append(self)
+        removeCurrent(self.id)
+
 
     @classmethod
     def get_occurrence_prob_range(cls):
@@ -193,52 +242,66 @@ class Payments(Service):
 
 # requests
 class RegisterOrderMobile(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [MobileAPI, OrderManagement, Payments]
-            Request.init(self, 1, max_wait, 0.2)
+            Request.init(self, 1, time, 0.2)
 
 
 class RegisterOrderWeb(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [WebAPI, OrderManagement, Payments]
-            Request.init(self, 1, max_wait, 0.1)
+            Request.init(self, 1, time, 0.1)
 
 
 class SendMessageDelivery(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [MobileAPI, CustomerManagement, DeliveryCommunication]
-            Request.init(self, 2, max_wait, 0.05)
+            Request.init(self, 2, time, 0.05)
 
 
 class RestaurantInfoMobile(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [MobileAPI, RestaurantManagement]
-            Request.init(self, 2, max_wait, 0.25)
+            Request.init(self, 2, time, 0.25)
 
 
 class RestaurantInfoWeb(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [WebAPI, RestaurantManagement]
-            Request.init(self, 2, max_wait, 0.15)
+            Request.init(self, 2, time, 0.15)
 
 
 class DeliveryRequest(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [WebAPI, RestaurantManagement, DeliveryCommunication]
-            Request.init(self, 1, max_wait, 0.2)
+            Request.init(self, 1, time, 0.2)
 
 
 class OrderTracking(Request):
-    def __init__(self, max_wait):
+    def __init__(self, time):
+        if type(self).pipeline:
+            super().__init__(time)
         if not type(self).pipeline:
             type(self).pipeline = [MobileAPI, OrderManagement]
-            Request.init(self, 2, max_wait, 0.05)
+            Request.init(self, 2, time, 0.05)
 
 
 # constants
@@ -247,13 +310,22 @@ mapper_service_dict = {0: RestaurantManagement, 1: CustomerManagement, 2: OrderM
 mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessageDelivery, 3: RestaurantInfoMobile,
                        4: RestaurantInfoWeb, 5: DeliveryRequest, 6: OrderTracking}
 
+# variables
+current_time = 0
+arrival_table = []
+current_requests = []
+accepted_requests = []
+failed_requests = []
+timeout_requests = []
+
 
 # functions
 def generate_request_type():
     temp = random.random()
     for i in range(len(Request.get_occurrence_prob_range())):
         if Request.get_occurrence_prob_range()[i] > temp:
-            return Request.get_allRequests()[i - 1]
+            temp2 = mapper_request_dict[i - 1](max_waits[i - 1])
+            return temp2
 
 
 def generate_arrival_data(rate, finish_time):
@@ -261,11 +333,11 @@ def generate_arrival_data(rate, finish_time):
     result = []
     while last_start_time < finish_time:
         interArrival = np.random.poisson(1.0 / float(rate), 1)
-        request_type = generate_request_type()
+        request = generate_request_type()
         if result:
-            result.append((request_type, int(result[-1][1] + interArrival)))
+            result.append((request, int(result[-1][1] + interArrival)))
         else:
-            result.append((request_type, int(interArrival)))
+            result.append((request, int(interArrival)))
         last_start_time = result[-1][1]
     if result[-1][1] >= finish_time:
         result.pop()
@@ -303,6 +375,25 @@ def isIdle():
     return True
 
 
+def handleFaults():
+    instancesServing = []
+    for i in range(7):
+        for instance in mapper_service_dict[i].instances:
+            if instance.inProgress is not None and instance.inProgress[2] is not None:
+                instancesServing.append(instance)
+
+    for instance in instancesServing:
+        temp = random.random()
+        if temp < instance.fault_prob:
+            instance.fail()
+
+
+def checkTimeOuts():
+    for req in current_requests:
+        if current_time - req.time > type(req).max_wait:
+            req.time_out()
+
+
 def showDebug():
     res = ""
     for i in range(7):
@@ -316,15 +407,18 @@ def showDebug():
     return res
 
 
+def removeCurrent(id):
+    idx = 0
+    for i in range(len(current_requests)):
+        if current_requests[i].id == id:
+            idx = i
+            break
+    current_requests.pop(idx)
 # inputs
 num_of_instances = []
 arrival_rate = 0
 total_time = 0
 max_waits = []
-
-# variables
-current_time = 0
-arrival_table = []
 
 for i in range(4):
     input_line = input()
@@ -365,14 +459,17 @@ while current_time <= total_time:
             break
     else:
         while idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
-            arrival_table[idx_over_arrival][0].DoRequest()
+            arrival_table[idx_over_arrival][0].doRequest()
             idx_over_arrival += 1
+        checkTimeOuts()
         handleProgressed()
+        handleFaults()
         handleQueues()
         log += "* t = " + str(current_time) + "\n"
         log += showDebug()
         current_time += 1
 
+print(len(arrival_table))
 arrival_txt = ""
 for x in arrival_table:
     arrival_txt += str(x[1]) + ", " + str(x[0]) + "\n"
@@ -380,3 +477,11 @@ with open("arrival.txt", 'w') as f:
     f.write(arrival_txt)
 with open("log.txt", 'w') as f:
     f.write(log)
+with open("accepted.txt", 'w') as f:
+    f.write(str(len(accepted_requests)) + "\n" + str(accepted_requests))
+with open("failed.txt", 'w') as f:
+    f.write(str(len(failed_requests)) + "\n" + str(failed_requests))
+with open("timeout.txt", 'w') as f:
+    f.write(str(len(timeout_requests)) + "\n" + str(timeout_requests))
+with open("pending.txt", 'w') as f:
+    f.write(str(len(current_requests)) + "\n" + str(current_requests))
