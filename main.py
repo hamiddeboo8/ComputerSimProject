@@ -1,3 +1,4 @@
+import math
 import random
 from abc import ABC, abstractmethod
 import numpy as np
@@ -5,19 +6,12 @@ import numpy as np
 
 # abstract classes
 class Service(ABC):
-    instances = []
-    queue = []
-
     @abstractmethod
     def __init__(self, service_rate, fault_prob):
         self.service_dist = 'exp'
         self.service_rate = service_rate
         self.fault_prob = fault_prob
         self.inProgress = None
-
-        if not type(self).instances:
-            type(self).queue = []
-        type(self).instances.append(self)
 
     @classmethod
     def addToQueue(cls, request, index, source):
@@ -30,7 +24,7 @@ class Service(ABC):
     def serve(self, request, index, source):
         self.inProgress = [(request, index), current_time, None, source]
         if len(request.pipeline) - 1 == index:
-            service_time = np.random.exponential(self.service_rate, 1)
+            service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
             self.inProgress[2] = current_time + service_time
         else:
             Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self)
@@ -39,7 +33,7 @@ class Service(ABC):
         if self.inProgress is None:
             return
         if self.inProgress[2] is None:
-            service_time = np.random.exponential(self.service_rate, 1)
+            service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
             self.inProgress[2] = current_time + service_time
             return
         if self.inProgress[2] > current_time:
@@ -81,103 +75,165 @@ class Service(ABC):
         if free_instances:
             free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source)
         else:
-            serviceType.addToQueue(request, index, None, source)
+            serviceType.addToQueue(request, index, source)
 
 
 class Request(ABC):
-    occurrence_prob_range = [0.0]
-    allRequests = []
+    __occurrence_prob_range = [0.0]
+    __allRequests = []
 
-    @abstractmethod
-    def __init__(self, priority, max_wait, occurrence_prob):
-        self.pipeline = []
-        self.priority = priority
-        self.max_wait = max_wait
-        self.occurrence_prob = occurrence_prob
-        Request.occurrence_prob_range.append(Request.occurrence_prob_range[-1] + occurrence_prob)
-        Request.allRequests.append(self)
+    pipeline = []
+    priority = 0
+    max_wait = 0
+    occurrence_prob = 0
 
-    def doRequest(self):
-        Service.SpecifyHandleInstance(self, self.pipeline[0], 0, None)
+    @classmethod
+    def init(cls, self, priority, max_wait, occurrence_prob):
+        type(self).priority = priority
+        type(self).max_wait = max_wait
+        type(self).occurrence_prob = occurrence_prob
+        Request.__occurrence_prob_range.append(Request.__occurrence_prob_range[-1] + occurrence_prob)
+        Request.__allRequests.append(type(self))
+
+    @classmethod
+    def DoRequest(cls):
+        Service.SpecifyHandleInstance(cls, cls.pipeline[0], 0, None)
+
+    @classmethod
+    def get_occurrence_prob_range(cls):
+        return cls.__occurrence_prob_range
+
+    @classmethod
+    def get_allRequests(cls):
+        return cls.__allRequests
 
 
 # services
 class MobileAPI(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 2, 0.01)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class WebAPI(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 3, 0.01)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class RestaurantManagement(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 8, 0.02)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class CustomerManagement(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 5, 0.02)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class OrderManagement(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 6, 0.03)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class DeliveryCommunication(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 9, 0.1)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 class Payments(Service):
+    instances = []
+    queue = []
+
     def __init__(self):
         Service.__init__(self, 12, 0.2)
+        if not type(self).instances:
+            type(self).queue = []
+        type(self).instances.append(self)
 
 
 # requests
 class RegisterOrderMobile(Request):
     def __init__(self, max_wait):
-        self.pipeline = [MobileAPI, OrderManagement, Payments]
-        Request.__init__(self, 1, max_wait, 0.2)
+        if not type(self).pipeline:
+            type(self).pipeline = [MobileAPI, OrderManagement, Payments]
+            Request.init(self, 1, max_wait, 0.2)
 
 
 class RegisterOrderWeb(Request):
     def __init__(self, max_wait):
-        self.pipeline = [WebAPI, OrderManagement, Payments]
-        Request.__init__(self, 1, max_wait, 0.1)
+        if not type(self).pipeline:
+            type(self).pipeline = [WebAPI, OrderManagement, Payments]
+            Request.init(self, 1, max_wait, 0.1)
 
 
 class SendMessageDelivery(Request):
     def __init__(self, max_wait):
-        self.pipeline = [MobileAPI, CustomerManagement, DeliveryCommunication]
-        Request.__init__(self, 2, max_wait, 0.05)
+        if not type(self).pipeline:
+            type(self).pipeline = [MobileAPI, CustomerManagement, DeliveryCommunication]
+            Request.init(self, 2, max_wait, 0.05)
 
 
 class RestaurantInfoMobile(Request):
     def __init__(self, max_wait):
-        self.pipeline = [MobileAPI, RestaurantManagement]
-        Request.__init__(self, 2, max_wait, 0.25)
+        if not type(self).pipeline:
+            type(self).pipeline = [MobileAPI, RestaurantManagement]
+            Request.init(self, 2, max_wait, 0.25)
 
 
 class RestaurantInfoWeb(Request):
     def __init__(self, max_wait):
-        self.pipeline = [WebAPI, RestaurantManagement]
-        Request.__init__(self, 2, max_wait, 0.15)
+        if not type(self).pipeline:
+            type(self).pipeline = [WebAPI, RestaurantManagement]
+            Request.init(self, 2, max_wait, 0.15)
 
 
 class DeliveryRequest(Request):
     def __init__(self, max_wait):
-        self.pipeline = [WebAPI, RestaurantManagement, DeliveryCommunication]
-        Request.__init__(self, 1, max_wait, 0.2)
+        if not type(self).pipeline:
+            type(self).pipeline = [WebAPI, RestaurantManagement, DeliveryCommunication]
+            Request.init(self, 1, max_wait, 0.2)
 
 
 class OrderTracking(Request):
     def __init__(self, max_wait):
-        self.pipeline = [MobileAPI, OrderManagement]
-        Request.__init__(self, 2, max_wait, 0.05)
+        if not type(self).pipeline:
+            type(self).pipeline = [MobileAPI, OrderManagement]
+            Request.init(self, 2, max_wait, 0.05)
 
 
 # constants
@@ -190,9 +246,9 @@ mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessa
 # functions
 def generate_request_type():
     temp = random.random()
-    for i in range(len(Request.occurrence_prob_range)):
-        if Request.occurrence_prob_range[i] > temp:
-            return type(Request.allRequests[i - 1])
+    for i in range(len(Request.get_occurrence_prob_range())):
+        if Request.get_occurrence_prob_range()[i] > temp:
+            return Request.get_allRequests()[i - 1]
 
 
 def generate_arrival_data(rate, finish_time):
@@ -237,9 +293,21 @@ def isIdle():
             return False
     for i in range(7):
         for instance in mapper_service_dict[i].instances:
-            if instance is not None:
+            if instance.inProgress is not None:
                 return False
     return True
+
+
+def showDebug():
+    res = ""
+    for i in range(7):
+        res += str(mapper_service_dict[i]) + ":\n"
+        res += "\t" + str(mapper_service_dict[i].queue) + "\n"
+        res += "\tinstances:\n"
+        for instance in mapper_service_dict[i].instances:
+            res += "\t\t" + str(instance.inProgress) + "\n"
+    res += "-----------------------------------------------\n"
+    return res
 
 
 # inputs
@@ -275,6 +343,7 @@ for i in range(7):
 
 arrival_table = generate_arrival_data(arrival_rate, total_time)
 idx_over_arrival = 0
+log = ""
 # print(Request.allRequests)
 # print(Request.occurrence_prob_range)
 
@@ -290,8 +359,12 @@ while current_time <= total_time:
             break
     else:
         while arrival_table[idx_over_arrival][1] == current_time:
-            arrival_table[idx_over_arrival][0].doRequest()
+            arrival_table[idx_over_arrival][0].DoRequest()
             idx_over_arrival += 1
         handleProgressed()
         handleQueues()
+        log += showDebug()
         current_time += 1
+
+with open("log.txt", 'w') as f:
+    f.write(log)
