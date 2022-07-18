@@ -14,22 +14,23 @@ class Service(ABC):
         self.inProgress = None
 
     @classmethod
-    def addToQueue(cls, request, index, source):
+    def addToQueue(cls, request, index, source, firstTime):
         for i in range(len(cls.queue)):
             if request.priority < cls.queue[i][0][0].priority:
-                cls.queue.append([(request, index), current_time, None, source])
+                cls.queue.append([(request, index), current_time, None, source, firstTime])
                 return
-        cls.queue.append([(request, index), current_time, None, source])
+        cls.queue.append([(request, index), current_time, None, source, firstTime])
 
-    def serve(self, request, index, source):
-        self.inProgress = [(request, index), current_time, None, source]
+    def serve(self, request, index, source, firstTime):
+        self.inProgress = [(request, index), current_time, None, source, firstTime]
         if len(request.pipeline) - 1 == index:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
             self.inProgress[2] = current_time + service_time
         else:
-            Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self)
+            Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self, firstTime)
 
     def serve_back(self):
+        print("serve_back fired,", self.inProgress)
         if self.inProgress is None:
             return
         if self.inProgress[2] is None:
@@ -38,16 +39,20 @@ class Service(ABC):
             return
         if self.inProgress[2] > current_time:
             return
-        temp = self.inProgress
-        self.inProgress = None
-        if temp[3] is None:
+        if self.inProgress[3] is None:
+            self.inProgress = None
             return
-        temp[3].serve_back()
+        else:
+            self.inProgress[3].serve_back()
+            self.inProgress = None
 
     @classmethod
     def HandleProgress(cls):
         for instance in cls.instances:
-            instance.serve_back()
+            if instance.inProgress is not None\
+                    and instance.inProgress[2] is not None\
+                    and instance.inProgress[2] == current_time:
+                instance.serve_back()
 
     @classmethod
     def EmptyQueues(cls):
@@ -63,19 +68,19 @@ class Service(ABC):
                     return
                 out_queue = cls.queue.pop()
                 idx = random.randint(0, len(free_instances) - 1)
-                free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3])
+                free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3], out_queue[4])
                 free_instances.pop(idx)
 
     @classmethod
-    def SpecifyHandleInstance(cls, request, serviceType, index, source):
+    def SpecifyHandleInstance(cls, request, serviceType, index, source, firstTime):
         free_instances = []
         for instance in serviceType.instances:
             if instance.inProgress is None:
                 free_instances.append(instance)
         if free_instances:
-            free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source)
+            free_instances[random.randint(0, len(free_instances) - 1)].serve(request, index, source, firstTime)
         else:
-            serviceType.addToQueue(request, index, source)
+            serviceType.addToQueue(request, index, source, firstTime)
 
 
 class Request(ABC):
@@ -97,7 +102,7 @@ class Request(ABC):
 
     @classmethod
     def DoRequest(cls):
-        Service.SpecifyHandleInstance(cls, cls.pipeline[0], 0, None)
+        Service.SpecifyHandleInstance(cls, cls.pipeline[0], 0, None, current_time)
 
     @classmethod
     def get_occurrence_prob_range(cls):
@@ -268,7 +273,7 @@ def generate_arrival_data(rate, finish_time):
 
 
 def handleQueues():
-    for i in range(4, -3):
+    for i in range(4, -3, -1):
         if i < 0:
             j = i + 7
         else:
@@ -277,16 +282,16 @@ def handleQueues():
 
 
 def handleProgressed():
-    for i in range(4, -3):
-        if i < 0:
-            j = i + 7
+    for ii in range(4, -3, -1):
+        if ii < 0:
+            jj = ii + 7
         else:
-            j = i
-        mapper_service_dict[j].HandleProgress()
+            jj = ii
+        mapper_service_dict[jj].HandleProgress()
 
 
 def isIdle():
-    if arrival_table[idx_over_arrival][1] == current_time:
+    if idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
         return False
     for i in range(7):
         if mapper_service_dict[i].queue:
@@ -306,7 +311,8 @@ def showDebug():
         res += "\tinstances:\n"
         for instance in mapper_service_dict[i].instances:
             res += "\t\t" + str(instance.inProgress) + "\n"
-    res += "-----------------------------------------------\n"
+        res += "\n"
+    res += "----------------------------------------------------------------------------------------------\n"
     return res
 
 
@@ -358,13 +364,19 @@ while current_time <= total_time:
         else:
             break
     else:
-        while arrival_table[idx_over_arrival][1] == current_time:
+        while idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
             arrival_table[idx_over_arrival][0].DoRequest()
             idx_over_arrival += 1
         handleProgressed()
         handleQueues()
+        log += "* t = " + str(current_time) + "\n"
         log += showDebug()
         current_time += 1
 
+arrival_txt = ""
+for x in arrival_table:
+    arrival_txt += str(x[1]) + ", " + str(x[0]) + "\n"
+with open("arrival.txt", 'w') as f:
+    f.write(arrival_txt)
 with open("log.txt", 'w') as f:
     f.write(log)
