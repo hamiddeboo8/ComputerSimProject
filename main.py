@@ -284,10 +284,14 @@ idx_over_arrival = 0
 
 while current_time <= total_time:
     if isIdle():
-        current_time = arrival_table[idx_over_arrival][1]
+        if idx_over_arrival < len(arrival_table):
+            current_time = arrival_table[idx_over_arrival][1]
+        else:
+            break
     else:
         while arrival_table[idx_over_arrival][1] == current_time:
             arrival_table[idx_over_arrival][0].doRequest()
             idx_over_arrival += 1
         handleProgressed()
         handleQueues()
+        current_time += 1
