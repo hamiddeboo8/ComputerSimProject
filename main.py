@@ -30,7 +30,7 @@ class Service(ABC):
             Service.SpecifyHandleInstance(request, request.pipeline[index + 1], index + 1, self, firstTime)
 
     def serve_back(self):
-        print("serve_back fired,", self.inProgress)
+        #print("serve_back fired,", self.inProgress)
         if self.inProgress is None:
             return
         if self.inProgress[2] is None:
