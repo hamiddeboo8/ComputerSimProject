@@ -3,6 +3,9 @@ import random
 from abc import ABC, abstractmethod
 import numpy as np
 
+random.seed(1)
+np.random.seed(1)
+
 
 # abstract classes
 class Service(ABC):
@@ -25,6 +28,7 @@ class Service(ABC):
         self.inProgress = [(request, index), current_time, None, source]
         if len(type(request).pipeline) - 1 == index:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
+            type(self).mean.append(service_time)
             self.inProgress[2] = current_time + service_time
         else:
             Service.SpecifyHandleInstance(request, type(request).pipeline[index + 1], index + 1, self)
@@ -35,6 +39,7 @@ class Service(ABC):
             return
         if self.inProgress[2] is None:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
+            type(self).mean.append(service_time)
             self.inProgress[2] = current_time + service_time
             return
         if self.inProgress[2] > current_time:
@@ -49,11 +54,11 @@ class Service(ABC):
     def fail(self):
         if self.inProgress is None:
             return
-        if self.inProgress[3] is None:
-            return
-        self.inProgress[3].fail()
-        failed_requests.append(self.inProgress[0][0])
-        removeCurrent(self.inProgress[0][0].id)
+        if self.inProgress[3] is not None:
+            self.inProgress[3].fail()
+        else:
+            failed_requests.append(self.inProgress[0][0])
+            removeCurrent(self.inProgress[0][0].id)
         self.inProgress = None
 
     @classmethod
@@ -106,7 +111,7 @@ class Request(ABC):
     @abstractmethod
     def __init__(self, time):
         self.id = Request.__ID + 1
-        self.time = time
+        self.time = -1
         Request.__ID += 1
 
     @classmethod
@@ -118,40 +123,31 @@ class Request(ABC):
         Request.__allRequests.append(type(self))
 
     def doRequest(self):
+        self.time = current_time
         current_requests.append(self)
         Service.SpecifyHandleInstance(self, type(self).pipeline[0], 0, None)
 
     def time_out(self):
-        temp = 0
         for i in range(len(type(self).pipeline) - 1, -1, -1):
+            temp = 0
             stage = type(self).pipeline[i]
-            if temp != 1:
-                for instance in stage.instances:
-                    if instance is not None and instance.inProgress is not None and instance.inProgress[0][0].id == self.id:
-                        instance.inProgress = None
-                        temp = 1
-                        break
-                if temp == 1:
-                    continue
-            else:
-                idx = -1
-                for k in range(len(stage.queue)):
-                    if stage.queue[k][0][0].id == self.id:
-                        idx = k
-                        break
-                if idx != -1:
-                    stage.queue.pop(idx)
-            if i == 0:
-                idx = -1
-                for k in range(len(stage.queue)):
-                    if stage.queue[k][0][0].id == self.id:
-                        idx = k
-                        break
-                if idx != -1:
-                    stage.queue.pop(idx)
+            for instance in stage.instances:
+                if instance is not None and instance.inProgress is not None and instance.inProgress[0][0].id == self.id:
+                    instance.inProgress = None
+                    temp = 1
+                    break
+            if temp == 1:
+                continue
+
+            idx = -1
+            for k in range(len(stage.queue)):
+                if stage.queue[k][0][0].id == self.id:
+                    idx = k
+                    break
+            if idx != -1:
+                stage.queue.pop(idx)
         timeout_requests.append(self)
         removeCurrent(self.id)
-
 
     @classmethod
     def get_occurrence_prob_range(cls):
@@ -164,6 +160,7 @@ class Request(ABC):
 
 # services
 class MobileAPI(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -175,6 +172,7 @@ class MobileAPI(Service):
 
 
 class WebAPI(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -186,6 +184,7 @@ class WebAPI(Service):
 
 
 class RestaurantManagement(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -197,6 +196,7 @@ class RestaurantManagement(Service):
 
 
 class CustomerManagement(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -208,6 +208,7 @@ class CustomerManagement(Service):
 
 
 class OrderManagement(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -219,6 +220,7 @@ class OrderManagement(Service):
 
 
 class DeliveryCommunication(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -230,6 +232,7 @@ class DeliveryCommunication(Service):
 
 
 class Payments(Service):
+    mean = []
     instances = []
     queue = []
 
@@ -390,7 +393,9 @@ def handleFaults():
 
 def checkTimeOuts():
     for req in current_requests:
+        #print(current_time, req.time)
         if current_time - req.time > type(req).max_wait:
+            #print(req.time)
             req.time_out()
 
 
@@ -414,6 +419,8 @@ def removeCurrent(id):
             idx = i
             break
     current_requests.pop(idx)
+
+
 # inputs
 num_of_instances = []
 arrival_rate = 0
@@ -450,38 +457,63 @@ log = ""
 # for arrive in arrival_table:
 #    arrive[0].putInQueue(arrive[1])
 
-
-while current_time <= total_time:
-    if isIdle():
-        if idx_over_arrival < len(arrival_table):
-            current_time = arrival_table[idx_over_arrival][1]
+try:
+    while current_time <= total_time:
+        if isIdle():
+            if idx_over_arrival < len(arrival_table):
+                current_time = arrival_table[idx_over_arrival][1]
+            else:
+                break
         else:
-            break
-    else:
-        while idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
-            arrival_table[idx_over_arrival][0].doRequest()
-            idx_over_arrival += 1
-        checkTimeOuts()
-        handleProgressed()
-        handleFaults()
-        handleQueues()
-        log += "* t = " + str(current_time) + "\n"
-        log += showDebug()
-        current_time += 1
+            addition = 0
+            while idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
+                arrival_table[idx_over_arrival][0].doRequest()
+                idx_over_arrival += 1
+                addition += 1
+            #print(addition)
+            #print(len(failed_requests) + len(timeout_requests) + len(accepted_requests) + len(current_requests), end="\t")
+            #print(len(timeout_requests), end="\t")
+            #print(len(accepted_requests), end="\t")
+            #print(len(current_requests))
 
-print(len(arrival_table))
-arrival_txt = ""
-for x in arrival_table:
-    arrival_txt += str(x[1]) + ", " + str(x[0]) + "\n"
-with open("arrival.txt", 'w') as f:
-    f.write(arrival_txt)
-with open("log.txt", 'w') as f:
-    f.write(log)
-with open("accepted.txt", 'w') as f:
-    f.write(str(len(accepted_requests)) + "\n" + str(accepted_requests))
-with open("failed.txt", 'w') as f:
-    f.write(str(len(failed_requests)) + "\n" + str(failed_requests))
-with open("timeout.txt", 'w') as f:
-    f.write(str(len(timeout_requests)) + "\n" + str(timeout_requests))
-with open("pending.txt", 'w') as f:
-    f.write(str(len(current_requests)) + "\n" + str(current_requests))
+            checkTimeOuts()
+            handleProgressed()
+            handleFaults()
+            handleQueues()
+            log += "* t = " + str(current_time) + "\n"
+            log += showDebug()
+            current_time += 1
+finally:
+    """a1 = a2 = a3 = a4 = a5 = a6 = a7 = 0
+    for req in timeout_requests:
+        if type(req) == RegisterOrderMobile:
+            a1 += 1
+        if type(req) == RegisterOrderWeb:
+            a2 += 1
+        if type(req) == SendMessageDelivery:
+            a3 += 1
+        if type(req) == RestaurantInfoMobile:
+            a4 += 1
+        if type(req) == RestaurantInfoWeb:
+            a5 += 1
+        if type(req) == DeliveryRequest:
+            a6 += 1
+        if type(req) == OrderTracking:
+            a7 += 1
+    print(a1, a2, a3, a4, a5, a6, a7)"""
+    print(len(arrival_table))
+    arrival_txt = ""
+    for x in arrival_table:
+        arrival_txt += str(x[1]) + ", " + str(x[0]) + "\n"
+    with open("arrival.txt", 'w') as f:
+        f.write(arrival_txt)
+    with open("log.txt", 'w') as f:
+        f.write(log)
+    with open("accepted.txt", 'w') as f:
+        f.write(str(len(accepted_requests)) + "\n" + str(accepted_requests))
+    with open("failed.txt", 'w') as f:
+        f.write(str(len(failed_requests)) + "\n" + str(failed_requests))
+    with open("timeout.txt", 'w') as f:
+        f.write(str(len(timeout_requests)) + "\n" + str(timeout_requests))
+    with open("pending.txt", 'w') as f:
+        f.write(str(len(current_requests)) + "\n" + str(current_requests))
