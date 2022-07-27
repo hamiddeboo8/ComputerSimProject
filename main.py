@@ -3,9 +3,6 @@ import random
 from abc import ABC, abstractmethod
 import numpy as np
 
-random.seed(1)
-np.random.seed(1)
-
 
 # abstract classes
 class Service(ABC):
@@ -18,6 +15,7 @@ class Service(ABC):
 
     @classmethod
     def addToQueue(cls, request, index, source):
+        requests_in_queues.append((request, current_time))
         for i in range(len(cls.queue)):
             if type(request).priority < cls.queue[i][0][0].priority:
                 cls.queue.insert(i, [(request, index), current_time, None, source])
@@ -28,8 +26,9 @@ class Service(ABC):
         self.inProgress = [(request, index), current_time, None, source]
         if len(type(request).pipeline) - 1 == index:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
-            type(self).mean.append(service_time)
             self.inProgress[2] = current_time + service_time
+            self.inProgress[0][0].times.append(service_time)
+            self.inProgress[0][0].last_service_time = current_time
         else:
             Service.SpecifyHandleInstance(request, type(request).pipeline[index + 1], index + 1, self)
 
@@ -39,12 +38,16 @@ class Service(ABC):
             return
         if self.inProgress[2] is None:
             service_time = math.ceil(np.random.exponential(self.service_rate, 1)[0])
-            type(self).mean.append(service_time)
+            self.inProgress[0][0].times.append(service_time)
+            self.inProgress[0][0].last_service_time = current_time
             self.inProgress[2] = current_time + service_time
             return
         if self.inProgress[2] > current_time:
             return
         if self.inProgress[3] is None:
+            type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].time - sum(
+                self.inProgress[0][0].times)
+            # print(sum(self.inProgress[0][0].times))
             accepted_requests.append(self.inProgress[0][0])
             removeCurrent(self.inProgress[0][0].id)
         else:
@@ -54,9 +57,21 @@ class Service(ABC):
     def fail(self):
         if self.inProgress is None:
             return
+        if self.inProgress[2] is not None:
+            self.inProgress[0][0].last_in_serve = current_time - self.inProgress[0][0].last_service_time
+            #print("K", self.inProgress[0][0].last_in_serve)
         if self.inProgress[3] is not None:
             self.inProgress[3].fail()
         else:
+            if len(self.inProgress[0][0].times) >= 2:
+                type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].last_in_serve\
+                                                    - self.inProgress[0][0].time - sum(self.inProgress[0][0].times[:-1])
+                #print("fail", current_time - self.inProgress[0][0].last_in_serve\
+                #                - self.inProgress[0][0].time - sum(self.inProgress[0][0].times[:-1]))
+            else:
+                type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].last_in_serve\
+                                                    - self.inProgress[0][0].time
+                #print("*", "fail", current_time - self.inProgress[0][0].last_in_serve - self.inProgress[0][0].time)
             failed_requests.append(self.inProgress[0][0])
             removeCurrent(self.inProgress[0][0].id)
         self.inProgress = None
@@ -82,6 +97,11 @@ class Service(ABC):
                 if not cls.queue:
                     return
                 out_queue = cls.queue.pop(0)
+                idx = -1
+                for i in range(len(requests_in_queues)):
+                    if requests_in_queues[i][0] == out_queue[0][0]:
+                        idx = i
+                        break
                 idx = random.randint(0, len(free_instances) - 1)
                 free_instances[idx].serve(out_queue[0][0], out_queue[0][1], out_queue[3])
                 free_instances.pop(idx)
@@ -112,6 +132,8 @@ class Request(ABC):
     def __init__(self, time):
         self.id = Request.__ID + 1
         self.time = -1
+        self.last_service_time = -1
+        self.last_in_serve = 0
         Request.__ID += 1
 
     @classmethod
@@ -124,6 +146,7 @@ class Request(ABC):
 
     def doRequest(self):
         self.time = current_time
+        self.last_service_time = current_time
         current_requests.append(self)
         Service.SpecifyHandleInstance(self, type(self).pipeline[0], 0, None)
 
@@ -133,6 +156,8 @@ class Request(ABC):
             stage = type(self).pipeline[i]
             for instance in stage.instances:
                 if instance is not None and instance.inProgress is not None and instance.inProgress[0][0].id == self.id:
+                    if instance.inProgress[2] is not None:
+                        instance.inProgress[0][0].last_in_serve = current_time - instance.inProgress[0][0].last_service_time
                     instance.inProgress = None
                     temp = 1
                     break
@@ -166,6 +191,7 @@ class MobileAPI(Service):
 
     def __init__(self):
         Service.__init__(self, 2, 0.01)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -178,6 +204,7 @@ class WebAPI(Service):
 
     def __init__(self):
         Service.__init__(self, 3, 0.01)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -190,6 +217,7 @@ class RestaurantManagement(Service):
 
     def __init__(self):
         Service.__init__(self, 8, 0.02)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -202,6 +230,7 @@ class CustomerManagement(Service):
 
     def __init__(self):
         Service.__init__(self, 5, 0.02)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -214,6 +243,7 @@ class OrderManagement(Service):
 
     def __init__(self):
         Service.__init__(self, 6, 0.03)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -226,6 +256,7 @@ class DeliveryCommunication(Service):
 
     def __init__(self):
         Service.__init__(self, 9, 0.1)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -238,6 +269,7 @@ class Payments(Service):
 
     def __init__(self):
         Service.__init__(self, 12, 0.2)
+        self.busy = 0
         if not type(self).instances:
             type(self).queue = []
         type(self).instances.append(self)
@@ -245,7 +277,10 @@ class Payments(Service):
 
 # requests
 class RegisterOrderMobile(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -254,7 +289,10 @@ class RegisterOrderMobile(Request):
 
 
 class RegisterOrderWeb(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -263,7 +301,10 @@ class RegisterOrderWeb(Request):
 
 
 class SendMessageDelivery(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -272,7 +313,10 @@ class SendMessageDelivery(Request):
 
 
 class RestaurantInfoMobile(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -281,7 +325,10 @@ class RestaurantInfoMobile(Request):
 
 
 class RestaurantInfoWeb(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -290,7 +337,10 @@ class RestaurantInfoWeb(Request):
 
 
 class DeliveryRequest(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -299,7 +349,10 @@ class DeliveryRequest(Request):
 
 
 class OrderTracking(Request):
+    inQueue = 0.0
+
     def __init__(self, time):
+        self.times = []
         if type(self).pipeline:
             super().__init__(time)
         if not type(self).pipeline:
@@ -308,10 +361,16 @@ class OrderTracking(Request):
 
 
 # constants
+mapper_service_dict_str = {0: "RestaurantManagement", 1: "CustomerManagement", 2: "OrderManagement",
+                           3: "DeliveryCommunication",
+                           4: "Payments", 5: "MobileAPI", 6: "WebAPI"}
 mapper_service_dict = {0: RestaurantManagement, 1: CustomerManagement, 2: OrderManagement, 3: DeliveryCommunication,
                        4: Payments, 5: MobileAPI, 6: WebAPI}
 mapper_request_dict = {0: RegisterOrderMobile, 1: RegisterOrderWeb, 2: SendMessageDelivery, 3: RestaurantInfoMobile,
                        4: RestaurantInfoWeb, 5: DeliveryRequest, 6: OrderTracking}
+mapper_request_dict_str = {0: "RegisterOrderMobile", 1: "RegisterOrderWeb", 2: "SendMessageDelivery",
+                           3: "RestaurantInfoMobile",
+                           4: "RestaurantInfoWeb", 5: "DeliveryRequest", 6: "OrderTracking"}
 
 # variables
 current_time = 0
@@ -393,10 +452,16 @@ def handleFaults():
 
 def checkTimeOuts():
     for req in current_requests:
-        #print(current_time, req.time)
+        # print(current_time, req.time)
         if current_time - req.time > type(req).max_wait:
-            #print(req.time)
+            # print(req.time)
             req.time_out()
+            if len(req.times) >= 2:
+                type(req).inQueue += current_time - req.last_in_serve - req.time - sum(req.times[:-1])
+                #print("time", current_time - req.last_in_serve - req.time - sum(req.times[:-1]))
+            else:
+                type(req).inQueue += current_time - req.last_in_serve - req.time
+                #print("*", "time", current_time - req.last_in_serve - req.time)
 
 
 def showDebug():
@@ -457,6 +522,9 @@ log = ""
 # for arrive in arrival_table:
 #    arrive[0].putInQueue(arrive[1])
 
+requests_in_queues = []
+queue_sums = [0, 0, 0, 0, 0, 0, 0]
+
 try:
     while current_time <= total_time:
         if isIdle():
@@ -465,16 +533,16 @@ try:
             else:
                 break
         else:
-            addition = 0
             while idx_over_arrival < len(arrival_table) and arrival_table[idx_over_arrival][1] == current_time:
                 arrival_table[idx_over_arrival][0].doRequest()
                 idx_over_arrival += 1
-                addition += 1
-            #print(addition)
-            #print(len(failed_requests) + len(timeout_requests) + len(accepted_requests) + len(current_requests), end="\t")
-            #print(len(timeout_requests), end="\t")
-            #print(len(accepted_requests), end="\t")
-            #print(len(current_requests))
+
+            for i in range(7):
+                queue_sums[i] += len(mapper_service_dict[i].queue)
+            for i in range(7):
+                for instance in mapper_service_dict[i].instances:
+                    if instance.inProgress is not None:
+                        instance.busy += 1
 
             checkTimeOuts()
             handleProgressed()
@@ -483,25 +551,105 @@ try:
             log += "* t = " + str(current_time) + "\n"
             log += showDebug()
             current_time += 1
+            print(current_time)
 finally:
-    """a1 = a2 = a3 = a4 = a5 = a6 = a7 = 0
+
+    for request in current_requests:
+        if len(request.times) >= 2:
+            type(request).inQueue += current_time - (current_time - request.last_service_time) - request.time - sum(request.times[:-1])
+        else:
+            type(request).inQueue += current_time - (current_time - request.last_service_time) - request.time
+
+    a = [0, 0, 0, 0, 0, 0, 0]
+    for req in arrival_table:
+        if type(req[0]) == RegisterOrderMobile:
+            a[0] += 1
+        if type(req[0]) == RegisterOrderWeb:
+            a[1] += 1
+        if type(req[0]) == SendMessageDelivery:
+            a[2] += 1
+        if type(req[0]) == RestaurantInfoMobile:
+            a[3] += 1
+        if type(req[0]) == RestaurantInfoWeb:
+            a[4] += 1
+        if type(req[0]) == DeliveryRequest:
+            a[5] += 1
+        if type(req[0]) == OrderTracking:
+            a[6] += 1
+    b = [0, 0, 0, 0, 0, 0, 0]
+    for req in accepted_requests:
+        if type(req) == RegisterOrderMobile:
+            b[0] += 1
+        if type(req) == RegisterOrderWeb:
+            b[1] += 1
+        if type(req) == SendMessageDelivery:
+            b[2] += 1
+        if type(req) == RestaurantInfoMobile:
+            b[3] += 1
+        if type(req) == RestaurantInfoWeb:
+            b[4] += 1
+        if type(req) == DeliveryRequest:
+            b[5] += 1
+        if type(req) == OrderTracking:
+            b[6] += 1
+    c = [0, 0, 0, 0, 0, 0, 0]
+    for req in failed_requests:
+        if type(req) == RegisterOrderMobile:
+            c[0] += 1
+        if type(req) == RegisterOrderWeb:
+            c[1] += 1
+        if type(req) == SendMessageDelivery:
+            c[2] += 1
+        if type(req) == RestaurantInfoMobile:
+            c[3] += 1
+        if type(req) == RestaurantInfoWeb:
+            c[4] += 1
+        if type(req) == DeliveryRequest:
+            c[5] += 1
+        if type(req) == OrderTracking:
+            c[6] += 1
+    d = [0, 0, 0, 0, 0, 0, 0]
     for req in timeout_requests:
         if type(req) == RegisterOrderMobile:
-            a1 += 1
+            d[0] += 1
         if type(req) == RegisterOrderWeb:
-            a2 += 1
+            d[1] += 1
         if type(req) == SendMessageDelivery:
-            a3 += 1
+            d[2] += 1
         if type(req) == RestaurantInfoMobile:
-            a4 += 1
+            d[3] += 1
         if type(req) == RestaurantInfoWeb:
-            a5 += 1
+            d[4] += 1
         if type(req) == DeliveryRequest:
-            a6 += 1
+            d[5] += 1
         if type(req) == OrderTracking:
-            a7 += 1
-    print(a1, a2, a3, a4, a5, a6, a7)"""
-    print(len(arrival_table))
+            d[6] += 1
+    # print(a1, a2, a3, a4, a5, a6, a7)
+
+    print("* mean length of queues:")
+    for i in range(7):
+        print("\t-" + mapper_service_dict_str[i] + ": " + str(queue_sums[i] / total_time))
+
+    print("* mean length in queues:")
+    for i in range(7):
+        print("\t-" + mapper_request_dict_str[i] + ": " + str(mapper_request_dict[i].inQueue / a[i]))
+
+    print("* utilization of services:")
+    for i in range(7):
+        print("\t-" + mapper_service_dict_str[i] + ":")
+        for instance in mapper_service_dict[i].instances:
+            print("\t\t+" + str(instance.busy / total_time))
+
+    print("* accepted requests: " + str(len(accepted_requests)))
+    for i in range(7):
+        print("\t-" + mapper_request_dict_str[i] + ": " + str(b[i] / a[i]))
+    print("* timeout requests: " + str(len(timeout_requests)))
+    for i in range(7):
+        print("\t-" + mapper_request_dict_str[i] + ": " + str(d[i] / a[i]))
+    print("* failed requests: " + str(len(failed_requests)))
+    for i in range(7):
+        print("\t-" + mapper_request_dict_str[i] + ": " + str(c[i] / a[i]))
+
     arrival_txt = ""
     for x in arrival_table:
         arrival_txt += str(x[1]) + ", " + str(x[0]) + "\n"
