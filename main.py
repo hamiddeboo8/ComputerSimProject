@@ -33,7 +33,6 @@ class Service(ABC):
             Service.SpecifyHandleInstance(request, type(request).pipeline[index + 1], index + 1, self)
 
     def serve_back(self):
-        # print("serve_back fired,", self.inProgress)
         if self.inProgress is None:
             return
         if self.inProgress[2] is None:
@@ -47,7 +46,6 @@ class Service(ABC):
         if self.inProgress[3] is None:
             type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].time - sum(
                 self.inProgress[0][0].times)
-            # print(sum(self.inProgress[0][0].times))
             accepted_requests.append(self.inProgress[0][0])
             removeCurrent(self.inProgress[0][0].id)
         else:
@@ -59,19 +57,15 @@ class Service(ABC):
             return
         if self.inProgress[2] is not None:
             self.inProgress[0][0].last_in_serve = current_time - self.inProgress[0][0].last_service_time
-            #print("K", self.inProgress[0][0].last_in_serve)
         if self.inProgress[3] is not None:
             self.inProgress[3].fail()
         else:
             if len(self.inProgress[0][0].times) >= 2:
                 type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].last_in_serve\
                                                     - self.inProgress[0][0].time - sum(self.inProgress[0][0].times[:-1])
-                #print("fail", current_time - self.inProgress[0][0].last_in_serve\
-                #                - self.inProgress[0][0].time - sum(self.inProgress[0][0].times[:-1]))
             else:
                 type(self.inProgress[0][0]).inQueue += current_time - self.inProgress[0][0].last_in_serve\
                                                     - self.inProgress[0][0].time
-                #print("*", "fail", current_time - self.inProgress[0][0].last_in_serve - self.inProgress[0][0].time)
             failed_requests.append(self.inProgress[0][0])
             removeCurrent(self.inProgress[0][0].id)
         self.inProgress = None
@@ -185,7 +179,6 @@ class Request(ABC):
 
 # services
 class MobileAPI(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -198,7 +191,6 @@ class MobileAPI(Service):
 
 
 class WebAPI(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -211,7 +203,6 @@ class WebAPI(Service):
 
 
 class RestaurantManagement(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -224,7 +215,6 @@ class RestaurantManagement(Service):
 
 
 class CustomerManagement(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -237,7 +227,6 @@ class CustomerManagement(Service):
 
 
 class OrderManagement(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -250,7 +239,6 @@ class OrderManagement(Service):
 
 
 class DeliveryCommunication(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -263,7 +251,6 @@ class DeliveryCommunication(Service):
 
 
 class Payments(Service):
-    mean = []
     instances = []
     queue = []
 
@@ -452,16 +439,12 @@ def handleFaults():
 
 def checkTimeOuts():
     for req in current_requests:
-        # print(current_time, req.time)
         if current_time - req.time > type(req).max_wait:
-            # print(req.time)
             req.time_out()
             if len(req.times) >= 2:
                 type(req).inQueue += current_time - req.last_in_serve - req.time - sum(req.times[:-1])
-                #print("time", current_time - req.last_in_serve - req.time - sum(req.times[:-1]))
             else:
                 type(req).inQueue += current_time - req.last_in_serve - req.time
-                #print("*", "time", current_time - req.last_in_serve - req.time)
 
 
 def showDebug():
@@ -516,11 +499,6 @@ for i in range(7):
 arrival_table = generate_arrival_data(arrival_rate, total_time)
 idx_over_arrival = 0
 log = ""
-# print(Request.allRequests)
-# print(Request.occurrence_prob_range)
-
-# for arrive in arrival_table:
-#    arrive[0].putInQueue(arrive[1])
 
 requests_in_queues = []
 queue_sums = [0, 0, 0, 0, 0, 0, 0]
@@ -551,7 +529,7 @@ try:
             log += "* t = " + str(current_time) + "\n"
             log += showDebug()
             current_time += 1
-            print(current_time)
+            #print(current_time)
 finally:
 
     for request in current_requests:
@@ -624,13 +602,15 @@ finally:
             d[5] += 1
         if type(req) == OrderTracking:
             d[6] += 1
-    # print(a1, a2, a3, a4, a5, a6, a7)
 
     print("* mean length of queues:")
     for i in range(7):
         print("\t-" + mapper_service_dict_str[i] + ": " + str(queue_sums[i] / total_time))
 
-    print("* mean length in queues:")
+    s = 0.0
+    for i in range(7):
+        s += mapper_request_dict[i].inQueue
+    print("* mean time spent in queues: ", str(s/sum(a)))
     for i in range(7):
         print("\t-" + mapper_request_dict_str[i] + ": " + str(mapper_request_dict[i].inQueue / a[i]))
 
@@ -640,13 +620,13 @@ finally:
         for instance in mapper_service_dict[i].instances:
             print("\t\t+" + str(instance.busy / total_time))
 
-    print("* accepted requests: " + str(len(accepted_requests)))
+    print("* accepted requests: " + str(len(accepted_requests) / len(arrival_table)))
     for i in range(7):
         print("\t-" + mapper_request_dict_str[i] + ": " + str(b[i] / a[i]))
-    print("* timeout requests: " + str(len(timeout_requests)))
+    print("* timeout requests: " + str(len(timeout_requests) / len(arrival_table)))
     for i in range(7):
         print("\t-" + mapper_request_dict_str[i] + ": " + str(d[i] / a[i]))
-    print("* failed requests: " + str(len(failed_requests)))
+    print("* failed requests: " + str(len(failed_requests) / len(arrival_table)))
     for i in range(7):
         print("\t-" + mapper_request_dict_str[i] + ": " + str(c[i] / a[i]))
 
@@ -657,11 +637,11 @@ finally:
         f.write(arrival_txt)
     with open("log.txt", 'w') as f:
         f.write(log)
-    with open("accepted.txt", 'w') as f:
-        f.write(str(len(accepted_requests)) + "\n" + str(accepted_requests))
-    with open("failed.txt", 'w') as f:
-        f.write(str(len(failed_requests)) + "\n" + str(failed_requests))
-    with open("timeout.txt", 'w') as f:
-        f.write(str(len(timeout_requests)) + "\n" + str(timeout_requests))
+    #with open("accepted.txt", 'w') as f:
+    #    f.write(str(len(accepted_requests)) + "\n" + str(accepted_requests))
+    #with open("failed.txt", 'w') as f:
+    #    f.write(str(len(failed_requests)) + "\n" + str(failed_requests))
+    #with open("timeout.txt", 'w') as f:
+    #    f.write(str(len(timeout_requests)) + "\n" + str(timeout_requests))
     with open("pending.txt", 'w') as f:
         f.write(str(len(current_requests)) + "\n" + str(current_requests))
